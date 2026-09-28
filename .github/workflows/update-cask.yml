@@ -1,0 +1,120 @@
+name: Update cask
+
+on:
+  schedule:
+    - cron: "23 6 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  UPSTREAM: lmgarret/karakept-kmp
+  CASK: Casks/karakept.rb
+
+jobs:
+  check:
+    name: Check for a new release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      sha256: ${{ steps.verify.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Resolve latest release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # "Latest" excludes pre-releases, so the nightly build is never picked up.
+          tag="$(gh release view --repo "$UPSTREAM" --json tagName --jq .tagName)"
+          version="${tag#v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Unexpected release tag: $tag"
+            exit 1
+          fi
+          current="$(sed -n 's/^  version "\(.*\)"$/\1/p' "$CASK")"
+          if [[ "$version" == "$current" ]]; then
+            echo "Cask is up to date ($current)."
+            exit 0
+          fi
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/bump/karakept-$version" --silent 2>/dev/null; then
+            echo "bump/karakept-$version already exists."
+            exit 0
+          fi
+          echo "Updating $current -> $version."
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Download and verify DMG
+        id: verify
+        if: steps.release.outputs.version != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          dmg="$RUNNER_TEMP/Karakept-$VERSION.dmg"
+          gh release download "v$VERSION" --repo "$UPSTREAM" \
+            --pattern "Karakept-$VERSION.dmg" --output "$dmg"
+          # Refuse to pin a checksum for anything the upstream release workflow
+          # did not build on a GitHub-hosted runner.
+          gh attestation verify "$dmg" --repo "$UPSTREAM" \
+            --signer-workflow "$UPSTREAM/.github/workflows/release.yml" \
+            --deny-self-hosted-runners
+          echo "sha256=$(sha256sum "$dmg" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+  open-pr:
+    name: Open bump pull request
+    needs: check
+    if: needs.check.outputs.version != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # push the bump branch
+      pull-requests: write # open the bump PR
+      actions: write # dispatch Tests on the bump branch
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Update cask
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+          SHA256: ${{ needs.check.outputs.sha256 }}
+        run: |
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+          [[ "$SHA256" =~ ^[0-9a-f]{64}$ ]] || exit 1
+          sed -i \
+            -e "s/^  version \".*\"$/  version \"$VERSION\"/" \
+            -e "s/^  sha256 \".*\"$/  sha256 \"$SHA256\"/" \
+            "$CASK"
+          git diff --exit-code --quiet "$CASK" && { echo "::error::Cask unchanged"; exit 1; }
+          git diff
+
+      - name: Push branch and open pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          branch="bump/karakept-$VERSION"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git commit -am "karakept $VERSION"
+          gh auth setup-git
+          git push origin "$branch"
+          gh pr create --base main --head "$branch" \
+            --title "karakept $VERSION" \
+            --body "Bumps karakept to [v$VERSION](https://github.com/$UPSTREAM/releases/tag/v$VERSION). The DMG's build provenance was verified against \`$UPSTREAM/.github/workflows/release.yml\` before its checksum was pinned."
+          # A PR opened with GITHUB_TOKEN triggers no pull_request workflows;
+          # dispatching Tests on the branch reports its checks on the PR head.
+          gh workflow run tests.yml --ref "$branch"
