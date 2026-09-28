@@ -18,6 +18,9 @@ env:
 jobs:
   check:
     name: Check for a new release
+    # publish pushes the checked-out commit to main; from any other branch that
+    # would fast-forward main onto unreviewed commits.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -45,10 +48,6 @@ jobs:
           current="$(sed -n 's/^  version "\(.*\)"$/\1/p' "$CASK")"
           if [[ "$version" == "$current" ]]; then
             echo "Cask is up to date ($current)."
-            exit 0
-          fi
-          if gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/bump/karakept-$version" --silent 2>/dev/null; then
-            echo "bump/karakept-$version already exists."
             exit 0
           fi
           echo "Updating $current -> $version."
@@ -83,15 +82,15 @@ jobs:
       sha256: ${{ needs.check.outputs.sha256 }}
 
   publish:
-    name: Open and auto-merge bump pull request
+    name: Push cask update
     needs: [check, tests]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      contents: write # push the bump branch, merge the PR
-      pull-requests: write # open the bump PR, enable auto-merge
-      actions: write # dispatch Tests on the bump branch
+      contents: write # push the bump commit to main
     steps:
+      # Same commit Tests ran against: if main has moved since, the push is
+      # rejected as non-fast-forward and the next run retries on the new main.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -102,24 +101,15 @@ jobs:
           SHA256: ${{ needs.check.outputs.sha256 }}
         run: .github/scripts/set-cask-version.sh "$VERSION" "$SHA256"
 
-      - name: Push branch and open pull request
+      - name: Commit and push
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.check.outputs.version }}
         run: |
-          branch="bump/karakept-$VERSION"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git switch -c "$branch"
-          git commit -am "karakept $VERSION"
+          git commit -am "karakept $VERSION" \
+            -m "Release: https://github.com/$UPSTREAM/releases/tag/v$VERSION" \
+            -m "DMG build provenance verified against $UPSTREAM/.github/workflows/release.yml."
           gh auth setup-git
-          git push origin "$branch"
-          gh pr create --base main --head "$branch" \
-            --title "karakept $VERSION" \
-            --body "Bumps karakept to [v$VERSION](https://github.com/$UPSTREAM/releases/tag/v$VERSION). The DMG's build provenance was verified against \`$UPSTREAM/.github/workflows/release.yml\` before its checksum was pinned, and the cask passed \`Tests\` before this PR was opened."
-          # A PR opened with GITHUB_TOKEN triggers no pull_request workflows;
-          # dispatching Tests on the branch reports the required checks on its head.
-          gh workflow run tests.yml --ref "$branch"
-          # Merges once the ruleset's required checks pass. The new version has
-          # already passed Tests in this run, so this never ships it untested.
-          gh pr merge "$branch" --auto --squash
+          git push origin HEAD:main

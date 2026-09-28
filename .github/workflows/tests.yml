@@ -4,11 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
-  # update-cask.yml dispatches this on its bump branch: a PR opened with
-  # GITHUB_TOKEN does not trigger pull_request workflows by itself.
   workflow_dispatch:
-  # update-cask.yml also calls it before opening a bump PR, testing the new
-  # version against the cask on main.
+  # update-cask.yml calls it to test a new version before pushing it to main.
   workflow_call:
     inputs:
       version:

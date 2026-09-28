@@ -40,8 +40,7 @@ daily. For a new version it:
    [build provenance attestation](https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations)
    against the upstream release workflow;
 2. runs `Tests` (style, audit, livecheck, install, uninstall) against the new version and SHA-256;
-3. opens a bump pull request and enables auto-merge on it, so it lands once the required checks
-   pass on the PR as well.
+3. commits the bump straight to `main`.
 
 A failure at any step stops the update, and the next day's run tries again.
 
