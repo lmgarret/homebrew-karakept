@@ -33,11 +33,17 @@ brew uninstall --cask --zap karakept  # also removes ~/.karakept
 
 ## How the cask is updated
 
-`update-cask.yml` checks the latest stable release of `lmgarret/karakept-kmp` daily. For a new
-version it downloads the DMG, verifies its
-[build provenance attestation](https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations)
-against the upstream release workflow, and only then opens a pull request pinning its SHA-256.
-The pull request is merged once `Tests` (style, audit, livecheck, install, uninstall) passes.
+Fully automated. `update-cask.yml` checks the latest stable release of `lmgarret/karakept-kmp`
+daily. For a new version it:
+
+1. downloads the DMG and verifies its
+   [build provenance attestation](https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations)
+   against the upstream release workflow;
+2. runs `Tests` (style, audit, livecheck, install, uninstall) against the new version and SHA-256;
+3. opens a bump pull request and enables auto-merge on it, so it lands once the required checks
+   pass on the PR as well.
+
+A failure at any step stops the update, and the next day's run tries again.
 
 No credential for this tap is stored in the upstream repository: the tap pulls releases, the app
 repository never pushes here.

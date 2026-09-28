@@ -71,15 +71,25 @@ jobs:
             --deny-self-hosted-runners
           echo "sha256=$(sha256sum "$dmg" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
-  open-pr:
-    name: Open bump pull request
+  tests:
+    name: Test new version
     needs: check
     if: needs.check.outputs.version != ''
+    permissions:
+      contents: read
+    uses: ./.github/workflows/tests.yml # zizmor: ignore[self-repository]
+    with:
+      version: ${{ needs.check.outputs.version }}
+      sha256: ${{ needs.check.outputs.sha256 }}
+
+  publish:
+    name: Open and auto-merge bump pull request
+    needs: [check, tests]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      contents: write # push the bump branch
-      pull-requests: write # open the bump PR
+      contents: write # push the bump branch, merge the PR
+      pull-requests: write # open the bump PR, enable auto-merge
       actions: write # dispatch Tests on the bump branch
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -90,15 +100,7 @@ jobs:
         env:
           VERSION: ${{ needs.check.outputs.version }}
           SHA256: ${{ needs.check.outputs.sha256 }}
-        run: |
-          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
-          [[ "$SHA256" =~ ^[0-9a-f]{64}$ ]] || exit 1
-          sed -i \
-            -e "s/^  version \".*\"$/  version \"$VERSION\"/" \
-            -e "s/^  sha256 \".*\"$/  sha256 \"$SHA256\"/" \
-            "$CASK"
-          git diff --exit-code --quiet "$CASK" && { echo "::error::Cask unchanged"; exit 1; }
-          git diff
+        run: .github/scripts/set-cask-version.sh "$VERSION" "$SHA256"
 
       - name: Push branch and open pull request
         env:
@@ -114,7 +116,10 @@ jobs:
           git push origin "$branch"
           gh pr create --base main --head "$branch" \
             --title "karakept $VERSION" \
-            --body "Bumps karakept to [v$VERSION](https://github.com/$UPSTREAM/releases/tag/v$VERSION). The DMG's build provenance was verified against \`$UPSTREAM/.github/workflows/release.yml\` before its checksum was pinned."
+            --body "Bumps karakept to [v$VERSION](https://github.com/$UPSTREAM/releases/tag/v$VERSION). The DMG's build provenance was verified against \`$UPSTREAM/.github/workflows/release.yml\` before its checksum was pinned, and the cask passed \`Tests\` before this PR was opened."
           # A PR opened with GITHUB_TOKEN triggers no pull_request workflows;
-          # dispatching Tests on the branch reports its checks on the PR head.
+          # dispatching Tests on the branch reports the required checks on its head.
           gh workflow run tests.yml --ref "$branch"
+          # Merges once the ruleset's required checks pass. The new version has
+          # already passed Tests in this run, so this never ships it untested.
+          gh pr merge "$branch" --auto --squash
