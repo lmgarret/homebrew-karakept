@@ -31,8 +31,10 @@ jobs:
       contents: read
     steps:
       # Checks the tap out itself and links it into Homebrew's Taps directory.
+      # Homebrew/actions publishes no tags, so the pin can only track main, which
+      # moves on from it with every push upstream.
       - name: Set up Homebrew
-        uses: Homebrew/actions/setup-homebrew@e99025eb970cfa124b8284a35463d87426917478 # main
+        uses: Homebrew/actions/setup-homebrew@9f17989bd508c794353d974d1756f23b0bcf10c1 # main  # zizmor: ignore[ref-version-mismatch]
 
       - name: Apply new version
         if: inputs.version != ''
