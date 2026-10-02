@@ -1,6 +1,6 @@
 cask "karakept" do
-  version "2.4.1"
-  sha256 "92374ec361a42b80bbe676b8e475f0a86f2344baf1b59b20f64e1d865de4e302"
+  version "2.5.0"
+  sha256 "a8d227802d492de3ecdd8105ecccf6baf474898c212ad181306fd581a2de78fd"
 
   url "https://github.com/lmgarret/karakept-kmp/releases/download/v#{version}/Karakept-#{version}.dmg"
   name "Karakept"
