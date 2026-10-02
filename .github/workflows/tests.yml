@@ -46,8 +46,11 @@ jobs:
       - name: Style
         run: brew style lmgarret/karakept
 
+      # livecheck_version fails whenever upstream is ahead of the cask, which
+      # update-cask.yml catches up on daily; left on, every release would turn
+      # main and open PRs red until then.
       - name: Audit
-        run: brew audit --cask --strict --online lmgarret/karakept/karakept
+        run: brew audit --cask --strict --online --except livecheck_version lmgarret/karakept/karakept
 
       - name: Check livecheck
         run: brew livecheck --cask lmgarret/karakept/karakept
