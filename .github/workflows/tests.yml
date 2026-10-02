@@ -33,9 +33,6 @@ jobs:
       # Checks the tap out itself and links it into Homebrew's Taps directory.
       - name: Set up Homebrew
         uses: Homebrew/actions/setup-homebrew@e99025eb970cfa124b8284a35463d87426917478 # main
-        with:
-          # Only needed while the repository is private.
-          token: ${{ github.token }}
 
       - name: Apply new version
         if: inputs.version != ''
