@@ -31,8 +31,10 @@ jobs:
       contents: read
     steps:
       # Checks the tap out itself and links it into Homebrew's Taps directory.
+      # Homebrew/actions publishes no tags, so the pin can only track main, which
+      # moves on from it with every push upstream.
       - name: Set up Homebrew
-        uses: Homebrew/actions/setup-homebrew@e99025eb970cfa124b8284a35463d87426917478 # main
+        uses: Homebrew/actions/setup-homebrew@9f17989bd508c794353d974d1756f23b0bcf10c1 # main  # zizmor: ignore[ref-version-mismatch]
 
       - name: Apply new version
         if: inputs.version != ''
@@ -44,8 +46,11 @@ jobs:
       - name: Style
         run: brew style lmgarret/karakept
 
+      # livecheck_version fails whenever upstream is ahead of the cask, which
+      # update-cask.yml catches up on daily; left on, every release would turn
+      # main and open PRs red until then.
       - name: Audit
-        run: brew audit --cask --strict --online lmgarret/karakept/karakept
+        run: brew audit --cask --strict --online --except livecheck_version lmgarret/karakept/karakept
 
       - name: Check livecheck
         run: brew livecheck --cask lmgarret/karakept/karakept
